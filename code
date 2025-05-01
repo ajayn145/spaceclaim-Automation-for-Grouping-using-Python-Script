@@ -1,0 +1,231 @@
+##PRE PROCESSING FOR SPACECLAIM ATOMATION USING PYTHON~~~~~~~~~~~~~~~~##
+#NAME: SPACECLAIM ATOMATION FOR GROUPING                                          ##
+##VERSION: 1                                                       ##
+##AUTHOR: AJAY NELLIKAT                                               ##
+##SOFTWARE: ANSYS SPACECLAIM                               ##
+##CREATED ON: 13 MAR 2025                                          ##
+##LAST UPDATED: 13 MAR 2025                                          ##
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~##
+
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~DESCRIPTION~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~##
+##This python script is useful in grouping the CAD parts for better surface capturing and followed by helps in creating good quality meshes.##
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~##
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~##
+
+
+import re
+import clr
+import os
+import random
+import datetime
+clr.AddReference("System.Windows.Forms")
+clr.AddReference("System.Drawing")
+
+from System.Windows.Forms import Form, Button, Application, MessageBox, TextBox, Label, FormStartPosition, DialogResult
+
+# Set the working directory
+os.chdir("D:\\")
+directory_C = 'SpaceclaimAutomation\\Grouping\\'
+path_C = os.getcwd() + directory_C
+
+range1 = 0.0005
+range2 = 0.00101
+var_name = ['grp-0.00-0.50', 'grp-1.01-10.00', 'grp_all']
+face_grp_0_5 = []
+face_grp_1_10 = []
+face_grp_5_1 = []
+face_grp_all = []
+bodies = GetRootPart().GetAllBodies()
+part_name = GetRootPart().GetName()
+
+# Function to delete all existing named selections
+def delete_all_named_selections():
+    all_named_selections = WindowHelper.GetGroups()  # Get all named selections
+    for named_selection in all_named_selections:
+        # Delete each existing named selection
+        NamedSelection.Delete(named_selection.Name)
+
+# Delete all existing named selections before starting
+delete_all_named_selections()
+
+# Select faces based on radius criteria
+grp_0_5 = PowerSelection.Faces.ByRoundRadius(range1, PowerSelectOptions(False, BodySelection.Create(bodies)),
+                                              SearchCriteria.SizeComparison.SmallerOrEqual,
+                                              SearchCriteria.RoundType.All)
+grp_1_10 = PowerSelection.Faces.ByRoundRadius(range2, PowerSelectOptions(False, BodySelection.Create(bodies)),
+                                               SearchCriteria.SizeComparison.LargerOrEqual,
+                                               SearchCriteria.RoundType.All)
+grp_all = PowerSelection.Faces.ByRoundRadius(0.000, PowerSelectOptions(False, BodySelection.Create(bodies)),
+                                              SearchCriteria.SizeComparison.LargerOrEqual,
+                                              SearchCriteria.RoundType.All)
+
+# Ensure grp_0_5, grp_1_10, and grp_all are not None
+for i, j in enumerate([grp_0_5, grp_1_10, grp_all]):
+    if j is not None:
+        secondarySelection = Selection()
+        result = NamedSelection.Create(j, secondarySelection)
+        if result and result.CreatedNamedSelection:  # Check if result and CreatedNamedSelection are not None
+            result.CreatedNamedSelection.SetName(var_name[i])
+        else:
+            print("Failed to create named selection for " + var_name[i])
+    else:
+        print(var_name[i] + " is None and cannot be processed.")
+
+# Retrieve faces for each group
+try:
+    face_grp_0_5 = Selection.CreateByGroups(SelectionType.Primary, var_name[0]).GetItems[IDesignFace]()
+    face_grp_1_10 = Selection.CreateByGroups(SelectionType.Primary, var_name[1]).GetItems[IDesignFace]()
+    face_grp_all = Selection.CreateByGroups(SelectionType.Primary, var_name[2]).GetItems[IDesignFace]()
+except Exception as e:
+    print("Error while retrieving faces: " + str(e))
+
+# Ensure faces are retrieved properly
+if not face_grp_0_5:
+    print("No faces found for grp_0_5.")
+if not face_grp_1_10:
+    print("No faces found for grp_1_10.")
+if not face_grp_all:
+    print("No faces found for grp_all.")
+
+# Create grp-0.51-1.00 faces group from grp_all
+for i in face_grp_all:
+    if i not in face_grp_0_5 and i not in face_grp_1_10:
+        face_grp_5_1.append(i)
+
+e = Selection.Create(face_grp_5_1)
+secondarySelection = Selection()
+result = NamedSelection.Create(e, secondarySelection)
+if result and result.CreatedNamedSelection:
+    result.CreatedNamedSelection.SetName('grp-0.51-1.00')
+else:
+    print("Failed to create named selection for grp-0.51-1.00")
+
+# Delete grp_all after creating the subgroups
+NamedSelection.Delete("grp_all")
+
+# Groupings for other surfaces (random groups)
+all_faces = []
+for body in bodies:
+    all_faces.extend(body.Faces)  # Add faces of each body to the all_faces list
+
+# Number of random groups you want to create
+num_groups_per_part = {}
+grouped_faces = []  # Initialize this list to store all grouped faces.
+
+for body in bodies:
+    part_name = body.GetName()
+    
+    # Set the number of groups for each part
+    num_groups = 10
+    num_groups_per_part[part_name] = num_groups
+    
+    # Get faces for this part using the workaround (iterate over bodies)
+    part_faces = []
+    for body in bodies:
+        if body.GetName() == part_name:
+            for face in body.Faces:
+                part_faces.append(face)
+
+    # Calculate group size for this part
+    group_size = len(part_faces) // num_groups  # Number of faces per group
+    remaining_faces = len(part_faces) % num_groups  # Handle any remaining faces
+
+    # Randomly shuffle the faces
+    random.shuffle(part_faces)
+
+    # Create groups for this part
+    for i in range(num_groups):
+        # Determine group size, adjusting for any remaining faces
+        start_idx = i * group_size
+        end_idx = (i + 1) * group_size
+        if i == num_groups - 1:
+            end_idx += remaining_faces  # Give the last group any remaining faces
+
+        group_faces = part_faces[start_idx:end_idx]
+        
+        # Create the group name using a counter (e.g., 'Group_1', 'Group_2', ...)
+        group_name = "Group_" + str(i + 1) + "_" + part_name
+
+        # Create selection for the current group
+        selection = Selection.Create(group_faces)  # Create selection from the faces
+
+        # Create a named selection for the current group
+        secondarySelection = Selection()
+        result = NamedSelection.Create(selection, secondarySelection)
+        if result and result.CreatedNamedSelection:
+            result.CreatedNamedSelection.SetName(group_name)
+        else:
+            print("Failed to create named selection for " + group_name)
+        
+    # Store the faces in the grouped_faces list for further reference
+    grouped_faces.append(group_faces)
+
+# Now you can use the grouped_faces for further processing.
+
+
+# Prompting the user for a file name via a form dialog box
+class NameInputForm(Form):
+    def __init__(self):
+        self.Text = 'Enter Custom File Name'
+        self.Width = 300
+        self.Height = 150
+        self.StartPosition = FormStartPosition.CenterScreen
+
+        # Label
+        self.label = Label()
+        self.label.Text = "Enter File Name:"
+        self.label.Top = 20
+        self.label.Left = 10
+        self.Controls.Add(self.label)
+
+        # TextBox for user input
+        self.textBox = TextBox()
+        self.textBox.Top = 40
+        self.textBox.Left = 10
+        self.textBox.Width = 260
+        self.Controls.Add(self.textBox)
+
+        # OK Button
+        self.okButton = Button()
+        self.okButton.Text = "OK"
+        self.okButton.Top = 70
+        self.okButton.Left = 100
+        self.okButton.Click += self.on_ok_click
+        self.Controls.Add(self.okButton)
+
+    def on_ok_click(self, sender, e):
+        # Check if user has provided a name
+        self.file_name = self.textBox.Text.strip()
+        if not self.file_name:
+            MessageBox.Show("File name cannot be empty.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        else:
+            self.DialogResult = DialogResult.OK
+            self.Close()
+
+# Run the form to get the user input
+form = NameInputForm()
+Application.Run(form)
+
+# Check if the user clicked OK and entered a valid file name
+if form.DialogResult == DialogResult.OK:
+    custom_name = form.file_name
+else:
+    # Default name if user cancels or leaves it empty
+    custom_name = "default_file_name"
+
+# Proceed to create the file name with the current date
+current_date = datetime.datetime.now().strftime("%Y-%m-%d")  # Get the current date in YYYY-MM-DD format
+full_filename = custom_name+"_"+current_date
+
+# Define file paths where the document should be saved
+save_path_scdoc = os.path.join(path_C, full_filename + ".scdoc")
+save_path_tgf = os.path.join(path_C, full_filename + ".tgf")
+
+# Print the generated file paths for debugging purposes
+print("Save path for .scdoc:", save_path_scdoc)
+print("Save path for .tgf:", save_path_tgf)
+
+# Assuming that DocumentSave.Execute is the correct method to save the document:
+options = ExportOptions.Create()
+DocumentSave.Execute(save_path_scdoc, options)  # Save as .scdoc
+DocumentSave.Execute(save_path_tgf, options)  # Save as .tgf
